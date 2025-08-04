@@ -1,0 +1,24 @@
+# Core RAG Framework
+llama-index
+llama-index-llms-gemini
+llama-index-embeddings-gemini
+
+# API Framework
+fastapi
+uvicorn[standard]
+
+# Environment and Configuration
+python-dotenv
+
+# Google AI SDK
+google-generativeai
+
+# PDF Processing
+pypdf
+
+# Additional utilities
+requests
+pydantic
+
+# Optional: For better performance
+sentence-transformers
