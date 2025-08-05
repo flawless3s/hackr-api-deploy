@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List
 import logging
@@ -83,121 +83,122 @@ async def health_check():
 
 def validate_token(authorization: str = Header(...)):
     expected_token = f"Bearer {os.getenv('API_AUTH_TOKEN')}"
+    print(expected_token, authorization)
     if authorization != expected_token:
         raise HTTPException(status_code=401, detail="Unauthorized")
     
 @app.post("/api/v1/hackrx/run", response_model=HackathonResponse)
-async def run_submission(request: HackathonRequest,  token: None = Depends(validate_token)):
+async def run_submission(
+    questions: List[str] = Form(...),
+    document_url: str = Form(None),
+    file: UploadFile = File(None),
+    token: None = Depends(validate_token)
+):
     """
-    Main RAG endpoint that processes documents and answers questions
+    Main RAG endpoint that processes documents and answers questions.
+    Supports either a remote PDF URL (document_url) or direct PDF upload (file).
     """
     try:
-        document_url = request.documents
-        questions = request.questions
-        
-        logger.info(f"Processing document from URL: {document_url}")
-        logger.info(f"Number of questions: {len(questions)}")
-        
-        # 1. Load the document from URL
-        try:
-            # For URLs, we need to handle them differently
-            if document_url.startswith(('http://', 'https://')):
-                # Download and save temporarily, then load
+        logger.info(f"Number of questions received: {len(questions)}")
+        documents = []
+
+        # 1. Load from uploaded file (for blob-based or local PDF uploads)
+        if file is not None:
+            logger.info(f"Processing uploaded file: {file.filename}")
+            try:
+                import tempfile
+
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                    tmp_file.write(await file.read())
+                    tmp_file_path = tmp_file.name
+
+                reader = SimpleDirectoryReader(input_files=[tmp_file_path])
+                documents = reader.load_data()
+
+                os.unlink(tmp_file_path)
+                logger.info(f"Successfully loaded {len(documents)} document chunks from uploaded file")
+
+            except Exception as e:
+                logger.error(f"Failed to read uploaded file: {e}")
+                raise HTTPException(status_code=400, detail=f"Failed to read uploaded file: {str(e)}")
+
+        # 2. Load from URL if no file was uploaded
+        elif document_url and document_url.startswith(("http://", "https://")):
+            logger.info(f"Processing document from URL: {document_url}")
+            try:
                 import requests
                 import tempfile
-                
+
                 response = requests.get(document_url)
                 response.raise_for_status()
-                
-                # Create temporary file
+
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
                     tmp_file.write(response.content)
                     tmp_file_path = tmp_file.name
-                
-                # Load from temporary file
+
                 reader = SimpleDirectoryReader(input_files=[tmp_file_path])
                 documents = reader.load_data()
-                
-                # Clean up temporary file
-                os.unlink(tmp_file_path)
-            else:
-                # Assume it's a local file path
-                reader = SimpleDirectoryReader(input_files=[document_url])
-                documents = reader.load_data()
-                
-            logger.info(f"Successfully loaded {len(documents)} document chunks")
-            
-        except Exception as e:
-            logger.error(f"Failed to load document: {e}")
-            raise HTTPException(status_code=400, detail=f"Failed to load document from URL: {str(e)}")
 
-        # 2. Create the Vector Index
+                os.unlink(tmp_file_path)
+                logger.info(f"Successfully loaded {len(documents)} document chunks from URL")
+
+            except Exception as e:
+                logger.error(f"Failed to load document from URL: {e}")
+                raise HTTPException(status_code=400, detail=f"Failed to load document from URL: {str(e)}")
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="No valid document provided. Provide either a file upload or a valid document_url."
+            )
+
+        # 3. Create the Vector Index
         try:
             index = VectorStoreIndex.from_documents(documents)
             logger.info("Successfully created vector index")
         except Exception as e:
             logger.error(f"Failed to create index: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to create document index: {str(e)}")
-        
-        # 3. Create the Query Engine with explainability
-        query_engine = index.as_query_engine(
-            similarity_top_k=3,  # Retrieve top 3 most relevant chunks
-            response_mode="compact"  # More concise responses
-        )
-        
-        # 4. Process questions and generate answers with sources
+
+        # 4. Create the Query Engine
+        query_engine = index.as_query_engine(similarity_top_k=3, response_mode="compact")
         answers_with_sources = []
-        
+
+        # 5. Process each question
         for i, question in enumerate(questions):
             try:
                 logger.info(f"Processing question {i+1}/{len(questions)}: {question[:100]}...")
-                
-                # Query the engine
                 response = query_engine.query(question)
-                
-                # Build answer with explainable sources
                 answer_text = str(response)
-                
-                # Extract source information for explainability
                 source_info = "\n\n--- Sources and Rationale ---\n"
-                
+
                 if hasattr(response, 'source_nodes') and response.source_nodes:
                     for j, node in enumerate(response.source_nodes, 1):
-                        # Get page information if available
                         page_info = node.metadata.get('page_label', 'N/A')
-                        
-                        # Get the relevant text chunk
                         source_text = node.get_content().strip()
-                        
-                        # Add source with reasoning
                         source_info += f"\nSource {j} (Page {page_info}):\n"
                         source_info += f"Relevance Score: {getattr(node, 'score', 'N/A')}\n"
                         source_info += f"Content: {source_text[:500]}{'...' if len(source_text) > 500 else ''}\n"
                         source_info += "-" * 50 + "\n"
                 else:
                     source_info += "No specific sources retrieved for this answer.\n"
-                
-                # Combine answer with sources for explainability
+
                 final_answer = f"{answer_text}{source_info}"
                 answers_with_sources.append(final_answer)
-                
                 logger.info(f"Successfully processed question {i+1}")
-                
+
             except Exception as e:
                 logger.error(f"Failed to process question {i+1}: {e}")
-                error_answer = f"Error processing question: {str(e)}"
-                answers_with_sources.append(error_answer)
-        
+                answers_with_sources.append(f"Error processing question: {str(e)}")
+
         logger.info(f"Successfully processed all {len(questions)} questions")
         return HackathonResponse(answers=answers_with_sources)
-        
+
     except HTTPException:
-        # Re-raise HTTP exceptions
         raise
     except Exception as e:
         logger.error(f"Unexpected error in run_submission: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
+    
 @app.post("/api/v1/test")
 async def test_endpoint(request: dict):
     """Test endpoint for debugging"""
