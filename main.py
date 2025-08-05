@@ -169,21 +169,21 @@ async def run_submission(
                 logger.info(f"Processing question {i+1}/{len(questions)}: {question[:100]}...")
                 response = query_engine.query(question)
                 answer_text = str(response)
-                source_info = "\n\n--- Sources and Rationale ---\n"
+                # source_info = "\n\n--- Sources and Rationale ---\n"
 
-                if hasattr(response, 'source_nodes') and response.source_nodes:
-                    for j, node in enumerate(response.source_nodes, 1):
-                        page_info = node.metadata.get('page_label', 'N/A')
-                        source_text = node.get_content().strip()
-                        source_info += f"\nSource {j} (Page {page_info}):\n"
-                        source_info += f"Relevance Score: {getattr(node, 'score', 'N/A')}\n"
-                        source_info += f"Content: {source_text[:500]}{'...' if len(source_text) > 500 else ''}\n"
-                        source_info += "-" * 50 + "\n"
-                else:
-                    source_info += "No specific sources retrieved for this answer.\n"
+                # if hasattr(response, 'source_nodes') and response.source_nodes:
+                #     for j, node in enumerate(response.source_nodes, 1):
+                #         page_info = node.metadata.get('page_label', 'N/A')
+                #         source_text = node.get_content().strip()
+                #         source_info += f"\nSource {j} (Page {page_info}):\n"
+                #         source_info += f"Relevance Score: {getattr(node, 'score', 'N/A')}\n"
+                #         source_info += f"Content: {source_text[:500]}{'...' if len(source_text) > 500 else ''}\n"
+                #         source_info += "-" * 50 + "\n"
+                # else:
+                #     source_info += "No specific sources retrieved for this answer.\n"
 
-                final_answer = f"{answer_text}{source_info}"
-                answers_with_sources.append(final_answer)
+                # final_answer = f"{answer_text}{source_info}"
+                answers_with_sources.append(answer_text)
                 logger.info(f"Successfully processed question {i+1}")
 
             except Exception as e:

@@ -29,6 +29,10 @@ def test_main_endpoint():
 
     questions = [
         "What is the main topic of this document?",
+        "Do grandparents come under specific definiton family history?",
+        "Is gender change treatment covered?",
+        "What is code Excl?",
+        "Is there Grievance Redressal Procedure?"
     ]
 
     try:
