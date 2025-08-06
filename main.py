@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File, Form, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 import logging
@@ -25,6 +26,14 @@ app = FastAPI(
     title="RAG Document Q&A API",
     description="A RAG-based API for answering questions from PDF documents",
     version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Define API Request/Response Models
@@ -89,16 +98,52 @@ def validate_token(authorization: str = Header(...)):
     
 @app.post("/api/v1/hackrx/run", response_model=HackathonResponse)
 async def run_submission(
-    questions: List[str] = Form(...),
-    document_url: str = Form(None),
-    file: UploadFile = File(None),
+    request: Request,
     token: None = Depends(validate_token)
 ):
     """
     Main RAG endpoint that processes documents and answers questions.
-    Supports either a remote PDF URL (document_url) or direct PDF upload (file).
+    Supports both JSON and form data formats.
     """
     try:
+        content_type = request.headers.get("content-type", "")
+        
+        # Handle JSON request (new format)
+        if "application/json" in content_type:
+            data = await request.json()
+            questions = data.get("questions", [])
+            # Map 'documents' field to document_url for compatibility
+            document_url = data.get("documents") or data.get("document_url")
+            file = None
+            
+        # Handle form data (existing format)
+        elif "multipart/form-data" in content_type:
+            form = await request.form()
+            
+            # Handle questions from form
+            if "questions" in form:
+                questions_raw = form["questions"]
+                try:
+                    import json
+                    questions = json.loads(questions_raw) if isinstance(questions_raw, str) else [questions_raw]
+                except:
+                    questions = [questions_raw]
+            else:
+                questions = []
+                for key, value in form.items():
+                    if key.startswith("question"):
+                        questions.append(value)
+            
+            document_url = form.get("document_url")
+            file = form.get("file")
+            
+        else:
+            raise HTTPException(status_code=400, detail="Content-Type must be application/json or multipart/form-data")
+
+        # Validate input
+        if not questions or not isinstance(questions, list):
+            raise HTTPException(status_code=400, detail="Questions must be provided as a non-empty list")
+
         logger.info(f"Number of questions received: {len(questions)}")
         documents = []
 
@@ -148,7 +193,7 @@ async def run_submission(
         else:
             raise HTTPException(
                 status_code=400,
-                detail="No valid document provided. Provide either a file upload or a valid document_url."
+                detail="No valid document provided. Provide either a file upload or a valid document URL."
             )
 
         # 3. Create the Vector Index
@@ -169,20 +214,6 @@ async def run_submission(
                 logger.info(f"Processing question {i+1}/{len(questions)}: {question[:100]}...")
                 response = query_engine.query(question)
                 answer_text = str(response)
-                # source_info = "\n\n--- Sources and Rationale ---\n"
-
-                # if hasattr(response, 'source_nodes') and response.source_nodes:
-                #     for j, node in enumerate(response.source_nodes, 1):
-                #         page_info = node.metadata.get('page_label', 'N/A')
-                #         source_text = node.get_content().strip()
-                #         source_info += f"\nSource {j} (Page {page_info}):\n"
-                #         source_info += f"Relevance Score: {getattr(node, 'score', 'N/A')}\n"
-                #         source_info += f"Content: {source_text[:500]}{'...' if len(source_text) > 500 else ''}\n"
-                #         source_info += "-" * 50 + "\n"
-                # else:
-                #     source_info += "No specific sources retrieved for this answer.\n"
-
-                # final_answer = f"{answer_text}{source_info}"
                 answers_with_sources.append(answer_text)
                 logger.info(f"Successfully processed question {i+1}")
 
