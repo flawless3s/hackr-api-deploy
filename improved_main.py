@@ -105,7 +105,7 @@ async def health_check():
         "status": "healthy",
         "llm_model": "llama3.1:8b",
         "embedding_model": "nomic-embed-text",
-        "provider": "Ollama"  # Change to "Groq" if using Groq
+        "provider": "Groq"  # Change to "Groq" if using Groq
     }
 
 def validate_token(authorization: str = Header(...)):
