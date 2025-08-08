@@ -4,5 +4,6 @@ python-dotenv
 requests
 llama-index-core
 llama-index-llms-groq
+llama-index-llms-gemini
 llama-index-embeddings-huggingface
 llama-index-readers-file
