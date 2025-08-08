@@ -7,10 +7,6 @@ from typing import List
 import logging
 
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings
-# Option 1: Using Ollama (local deployment)
-# from llama_index.llms.ollama import Ollama
-# from llama_index.embeddings.ollama import OllamaEmbedding
-
 # Option 2: Using Groq (API service) - uncomment these if using Groq instead
 from llama_index.llms.groq import Groq
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding

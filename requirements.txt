@@ -1,6 +1,8 @@
 fastapi
 uvicorn[standard]
 python-dotenv
-llama-index
 requests
-pydantic
+llama-index-core
+llama-index-llms-groq
+llama-index-embeddings-huggingface
+llama-index-readers-file
